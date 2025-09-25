@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="id">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>OTP verification</title>
+    <link rel="stylesheet" href="css/verifikasi.css" />
+  </head>
+  <body>
+    <div class="otp-container">
+      <img src="img/verifikasi.svg" alt="OTP Ilustration" class="otp-image" />
+      <div class="otp-box">
+        <h2>OTP verification</h2>
+        <form id="otpForm">
+          <input
+            type="text"
+            name="otp"
+            inputmode="numeric"
+            pattern="\d{6}"
+            maxlength="6"
+            placeholder="Enter the 6-digit OTP"
+            required
+          />
+          <button type="submit" id="verifyBtn">Verify</button>
+          <div class="countdown">
+            Resend code in <span id="timer">02:00</span> minutes
+          </div>
+          <button id="resendBtn" class="resend-button" disabled>
+            Resend Code
+          </button>
+          <div class="message" id="msg"></div>
+        </form>
+      </div>
+    </div>
+    <script>
+      const timerDisplay = document.getElementById("timer");
+      const resendButton = document.getElementById("resendBtn");
+
+      let timeLeft = 120;
+      let otpDuration = 120; // default kalau tidak ada dari backend
+
+      // Ambil dari localStorage (kalau ada)
+      const storedTime = localStorage.getItem("otpSentTime");
+      const storedDuration = localStorage.getItem("otpDuration");
+
+      if (storedTime && storedDuration) {
+        const elapsed = Math.floor((Date.now() - parseInt(storedTime)) / 1000);
+        otpDuration = parseInt(storedDuration);
+        timeLeft = Math.max(0, otpDuration - elapsed);
+      }
+
+      function startCountdown() {
+        updateDisplay();
+
+        if (timeLeft <= 0) {
+          timerDisplay.textContent = "00:00";
+          resendButton.disabled = false;
+          resendButton.classList.remove("disabled");
+          localStorage.removeItem("otpSentTime");
+          localStorage.removeItem("otpDuration");
+          return;
+        }
+
+        resendButton.disabled = true;
+        resendButton.classList.add("disabled");
+
+        if (window.currentCountdown) clearInterval(window.currentCountdown);
+
+        const countdown = setInterval(() => {
+          timeLeft--;
+          updateDisplay();
+
+          if (timeLeft <= 0) {
+            clearInterval(countdown);
+            timerDisplay.textContent = "00:00";
+            resendButton.disabled = false;
+            resendButton.classList.remove("disabled");
+            localStorage.removeItem("otpSentTime");
+            localStorage.removeItem("otpDuration");
+          }
+        }, 1000);
+
+        window.currentCountdown = countdown;
+      }
+
+      function updateDisplay() {
+        const minutes = String(Math.floor(timeLeft / 60)).padStart(2, "0");
+        const seconds = String(timeLeft % 60).padStart(2, "0");
+        timerDisplay.textContent = `${minutes}:${seconds}`;
+      }
+
+      startCountdown(); // mulai saat load
+
+      // Tombol kirim ulang
+      resendButton.addEventListener("click", async () => {
+        resendButton.disabled = true;
+        resendButton.classList.add("disabled", "resend-button-loading");
+
+        try {
+          const response = await fetch("../managePass/php/resend_otp.php", {
+            method: "POST",
+            credentials: "include",
+          });
+          const result = await response.json();
+          const msg = document.getElementById("msg");
+
+          if (result.status === "success") {
+            msg.textContent = "A new OTP code has been sent!";
+            msg.style.color = "green";
+
+            otpDuration = result.duration || 120; // durasi dari backend, fallback ke 120
+            timeLeft = otpDuration;
+
+            // Simpan waktu ke localStorage
+            localStorage.setItem("otpSentTime", Date.now());
+            localStorage.setItem("otpDuration", otpDuration);
+
+            clearInterval(window.currentCountdown);
+            startCountdown();
+          } else {
+            msg.textContent = result.message || "Failed to resend OTP.";
+            msg.style.color = "red";
+          }
+        } catch (error) {
+          const msg = document.getElementById("msg");
+          msg.textContent = "An error occurred while resending OTP.";
+          msg.style.color = "red";
+          console.error("OTP resend error:", error);
+        } finally {
+          resendButton.classList.remove("resend-button-loading");
+        }
+      });
+
+      document
+        .getElementById("otpForm")
+        .addEventListener("submit", async (e) => {
+          e.preventDefault();
+          const otp = e.target.otp.value;
+          const msg = document.getElementById("msg");
+          const verifyBtn = document.getElementById("verifyBtn");
+
+          // Validasi format OTP
+          if (!/^\d{6}$/.test(otp)) {
+            msg.textContent = "OTP code must be 6 digits.";
+            msg.style.color = "red";
+            return;
+          }
+
+          // Aktifkan spinner
+          verifyBtn.disabled = true;
+          verifyBtn.classList.add("button-loading");
+
+          try {
+            const response = await fetch("../managePass/php/verify_otp.php", {
+              method: "POST",
+              headers: { "Content-Type": "application/x-www-form-urlencoded" },
+              body: `otp=${otp}`,
+              credentials: "include",
+            });
+
+            const result = await response.json();
+
+            if (result.status === "success") {
+              window.location.href = "../managePass/mainPage.php";
+            } else {
+              msg.textContent = result.message;
+              msg.style.color = "red";
+            }
+          } catch (err) {
+            msg.textContent = "An error occurred during verification.";
+            msg.style.color = "red";
+          } finally {
+            // Hapus spinner
+            verifyBtn.disabled = false;
+            verifyBtn.classList.remove("button-loading");
+          }
+        });
+    </script>
+  </body>
+</html>
